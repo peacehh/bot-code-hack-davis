@@ -1,6 +1,5 @@
 const Sequelize = require('sequelize')
 
-
 //declare database
 const sequelize = new Sequelize('database', 'user', 'password', {
 	host: 'localhost',
@@ -21,7 +20,7 @@ const users = sequelize.define('users', {
 		type: Sequelize.STRING,
 		unique: true,
 	},
-	username: Sequelize.STRING,
+	nickname: Sequelize.STRING,
 });
  
 

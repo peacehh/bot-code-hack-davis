@@ -1,4 +1,5 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder , EmbedBuilder} = require('discord.js');
+const { sequelize , users} = require('../../database');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -16,36 +17,44 @@ module.exports = {
 		)
 ,
 	async execute(interaction) {
-        const member = interaction.member;
+		const discordID = interaction.user.id
         const nickname = interaction.options.getString('nickname')
         const wcaID = interaction.options.getString('wcaid')
 
+		//check if wcaID was entered and doesnt exist
+		const url = `https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/master/api/persons/${wcaID}.json`
+		let request = await fetch(url);
 
-		let existingUser = await User.findOne({ where: { discordID: '123456789012345678' } });
+		if (request.status === 404 && wcaID) {
+			await interaction.reply(`This WCA ID doesn't exist. Please use all caps.`)
+			return
+		}
+	
+		let entry = await users.findOne({ where: { discordID: discordID } });
+			
+		if (entry) {
+			await entry.update({
+				nickname: nickname || entry.nickname,
+				wcaID: wcaID || entry.wcaID
+			});
+		} else {
+			//create assigns entry a new entry if query results in undefined
+			entry = await users.create({
+				discordID: discordID,
+				nickname: nickname,
+				wcaID: wcaID,		
+			});	
+		}
 
-        if (existingUser) {
-            // If the user exists, update their data
-            const existingUser = await existingUser.update({
-                username: 'updated_username',
-                usage_count: existingUser.usage_count + 1, // Increment usage count, for example
-            });
-        } else {
-            // If the user doesn't exist, create a new user
-            const newUser = await User.create({
-                discordID: '123456789012345678', // Example Discord ID
-                username: 'example_username',
-            });
-        }
-
-        if(!wcaID && !nickname) {
-            interaction.reply(`Well you didn't enter anything to update.`)
-        } else if (!wcaID) {
-		    interaction.reply(`Sucessfully updated ${member} information. Nickname: ${nickname}.`)
-        } else if (!nickname) {
-		    interaction.reply(`Sucessfully update ${member} information. WCA-ID: ${wcaID}.`)
-        } else {
-            interaction.reply(`Sucessfully update ${member} information. Nickname: ${nickname}, WCA-ID: ${wcaID}.`)
-        }
+		const response = new EmbedBuilder()
+			.setTitle(`${interaction.user.username}'s Information`)
+			.setColor(0x0099FF)
+			.addFields(
+				{ name: 'Nickname', value: entry.nickname || "unknown", inline: true},
+				{ name: 'WCA ID', value: entry.wcaID || "unknown", inline: true},
+		)
+		//retreive new data in database
+	    await interaction.reply({ embeds: [response] });
 	},
 };
 
