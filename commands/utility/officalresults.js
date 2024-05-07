@@ -107,7 +107,7 @@ module.exports = {
 		// 	)
 		
 		//format in resuts in embed
-		const timesField = sortedTimes.map(entry => "**"+ entry[0] + "**"+ `: ` + entry[1]).join('\n'); 
+		const timesField = sortedTimes.map(entry => "**"+ entry[0] + "**"+ `: ` + entry[1]).join('\n'); //
 		const nonalignedEmbed = new EmbedBuilder()
 			.setTitle(`${requestedEventName} ${formattedAverageOrSingle} Rankings`)
 			.setColor(0x0099FF)
