@@ -1,14 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits } = require('discord.js');
-const { sequelize } = require('./database')
 const { token } = require('./config.json');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-
-//create table
-sequelize.sync({force: true});
 
 //retreive commands 
 client.commands = new Collection();

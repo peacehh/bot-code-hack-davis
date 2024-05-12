@@ -1,5 +1,5 @@
 const { SlashCommandBuilder , EmbedBuilder} = require('discord.js');
-const { sequelize , users} = require('../../database');
+const fs = require('fs');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -18,43 +18,43 @@ module.exports = {
 ,
 	async execute(interaction) {
 		const discordID = interaction.user.id
-        const nickname = interaction.options.getString('nickname')
-        const wcaID = interaction.options.getString('wcaid')
+        const nicknameUser = interaction.options.getString('nickname')
+        const wcaIDUser = interaction.options.getString('wcaid')
 
 		//check if wcaID was entered and doesnt exist
-		const url = `https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/master/api/persons/${wcaID}.json`
+		const url = `https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/master/api/persons/${wcaIDUser}.json`
 		let request = await fetch(url);
 
-		if (request.status === 404 && wcaID) {
+		if (request.status === 404 && wcaIDUser) {
 			await interaction.reply(`This WCA ID doesn't exist. Please use all caps.`)
 			return
 		}
 	
-		let entry = await users.findOne({ where: { discordID: discordID } });
-			
-		if (entry) {
-			await entry.update({
-				nickname: nickname || entry.nickname,
-				wcaID: wcaID || entry.wcaID
-			});
-		} else {
-			//create assigns entry a new entry if query results in undefined
-			entry = await users.create({
-				discordID: discordID,
-				nickname: nickname,
-				wcaID: wcaID,		
-			});	
-		}
+		const dataJSON = fs.readFileSync('./data/users.json', 'utf8');
+		const data = JSON.parse(dataJSON);
 
-		const response = new EmbedBuilder()
+		//initialize the entry if it doesn't exist
+		if (!data.hasOwnProperty(discordID)) {
+			data[discordID] = {nickname: null, wcaID: null};
+		}
+		//update the values
+		data[discordID] = {	
+			nickname: nicknameUser || data[discordID].nickname,
+			wcaID: wcaIDUser || data[discordID].wcaID
+		};
+
+		const updatedJSON = JSON.stringify(data, null, 2);
+		fs.writeFileSync('./data/users.json', updatedJSON, 'utf8');
+	
+		const embed = new EmbedBuilder()
 			.setTitle(`${interaction.user.username}'s Information`)
 			.setColor(0x0099FF)
 			.addFields(
-				{ name: 'Nickname', value: entry.nickname || "unknown", inline: true},
-				{ name: 'WCA ID', value: entry.wcaID || "unknown", inline: true},
-		)
-		//retreive new data in database
-	    await interaction.reply({ embeds: [response] });
+				{ name: 'Nickname', value: data[discordID].nickname || "unknown", inline: true},
+				{ name: 'WCA ID', value: data[discordID].wcaID || "unknown", inline: true},
+			)
+
+	    await interaction.reply({ embeds: [embed] });
 	},
 };
 

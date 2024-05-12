@@ -12,7 +12,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "cubing": "^0.48.4",
     "discord.js": "^14.14.1",
+    "embed-table": "^4.2.3",
     "sequelize": "^6.37.3",
     "sqlite3": "^5.1.7"
   }
