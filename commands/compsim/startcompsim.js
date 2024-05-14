@@ -36,13 +36,10 @@ module.exports = {
 			.setPlaceholder('Select competitors')
 			.setMinValues(2)
 			.setMaxValues(15);
-		const row1 = new ActionRowBuilder()
+		const menu = new ActionRowBuilder()
 			.addComponents(userSelect);
         //send menu
-        const menuInteraction = await interaction.reply({
-            content: 'Select competitors',
-            components: [row1],
-		});
+        const menuInteraction = await interaction.reply({content: 'Select competitors', components: [menu]});
 
         //retreive the selected competitors
         const collectorFilter = i => i.user.id === interaction.user.id && i.customId === 'selectusers';
@@ -56,7 +53,7 @@ module.exports = {
         } catch (error) {
             //after one minute
             console.log(error)
-            await interaction.editReply({ content: 'Selection not received within 1 minute, cancelling', components: [] });
+            await interaction.editReply({ content: 'Selection not received, try again', components: [] });
             return; 
         }
 
@@ -64,12 +61,10 @@ module.exports = {
         const solveTimes = new Map(selectedUsers.map(userId => [userId, []]));
         const eventID = interaction.options.getString('event');
 		const eventName = eventData[eventID];
-        const compSimName = interaction.options.getString('compsimname') + eventID + eventName;
+        const compSimName = interaction.options.getString('compsimname');
         let currentSolver = nextCompetitor(solveTimes);
         const numberOfSolves = 5;
-        const channel = interaction.channel;
         const members = interaction.guild.members;
-
         //comps sim info
         const scrambles = [
             //TODO: need to inplement a way to generate scrambles cant get cubing.js to work
@@ -79,6 +74,23 @@ module.exports = {
             "R' L2 F' D2 F2 U2 R2 F' D2 F L2 D B L D2 B2 R' D U B'",
             "B2 R' B2 R' D2 L R D2 F2 D2 R F' L2 D' R' D2 F2 L F' D'",
         ]
+        //read compsim file
+        let compsimsJson = fs.readFileSync('./data/compsim.json', 'utf8');
+		let compSims = JSON.parse(compsimsJson);
+        let newCompSim = createCompSimObject(compSimName, solveTimes, eventID, scrambles)
+        //check is comp sim name already exists
+        for (var i = 0; i < compSims.length; i++) {
+            if (Object.values(compSims[i]).includes(compSimName)) {
+                interaction.editReply(
+                    { content: `This comp sim (${compSimName}) already exists. Please use another name`, components: [] }
+                );
+                return;
+            }
+        }
+        //add comp sim to json
+        compSims.push(newCompSim)
+        const updatedJSON = JSON.stringify(compSims, null, 2);
+		fs.writeFileSync('./data/compsim.json', updatedJSON, 'utf8');
 
         const skipButton = new ButtonBuilder()
             .setCustomId('skip')
@@ -91,9 +103,9 @@ module.exports = {
         const row = new ActionRowBuilder().addComponents(enterTimeButton, skipButton);
 
         //generate the embeds
-        let messageEmbeds = await generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
+        let messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
         //send the times embed and buttons
-        let embedMessage = await channel.send({embeds: messageEmbeds, components: [row]});
+        let embedMessage = await interaction.channel.send({embeds: messageEmbeds, components: [row]});
 
         //runs when skip button pressed
         const skipCollector = embedMessage.createMessageComponentCollector({ filter: i => i.customId === 'skip'});
@@ -164,11 +176,17 @@ module.exports = {
                 return;
             }
 
-            
-            //updates the solveTimes, current solver, and the message.
+            //updates the solveTimes
             const times = solveTimes.get(currentSolver);
             times[nextSolveIndex(times)] = timeToCentiseconds(time);
 
+            //update json file
+            let compsimsJson = fs.readFileSync('./data/compsim.json', 'utf8');
+            let compSims = JSON.parse(compsimsJson);
+            newCompSim = createCompSimObject(compSimName, solveTimes, eventID, scrambles)
+            compSims = compSims.map(comp => comp.name===compSimName?newCompSim:comp)            
+            const updatedJSON = JSON.stringify(compSims, null, 2);
+            fs.writeFileSync('./data/compsim.json', updatedJSON, 'utf8');
 
             //check if comp sim is over
             const over = nextSolveIndex(solveTimes.get(nextCompetitor(solveTimes))) === numberOfSolves
@@ -178,7 +196,9 @@ module.exports = {
                 return;
             };
 
+            //update current solver
             currentSolver = nextCompetitor(solveTimes)
+
             messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
             await embedMessage.edit({embeds: messageEmbeds});
 
@@ -189,8 +209,23 @@ module.exports = {
 	},
 };
 
+function createCompSimObject(compName, times, eventID, scrambles) {
+    const timesObject = {};
+    times.forEach((value, key) => {
+        timesObject[key] = value;
+    });
+
+    const compSimObject = {
+        name: compName,
+        eventID: eventID,
+        Scrambles: scrambles,
+        times: timesObject
+    }
+
+    return compSimObject
+}
 function nextSolveIndex(times) {
-    let solveNumber = times.findIndex(time => time === undefined);
+    let solveNumber = times.findIndex(time => time === undefined || time == null);
     if (solveNumber === -1 ) 
         solveNumber = times.length
 
@@ -223,7 +258,7 @@ function generateEmbed(timeData, members, competitor, compName, scrambles) {
         return numbers.reduce((acc, curr) => acc + curr, 0);
     }
     const timesEmbed = new EmbedBuilder()
-        .setTitle("RESULTS")
+        .setTitle("RESULTS: " + compName.toUpperCase())
         .setColor(0x0099FF)
 
     //add the times for each competitor to the embed

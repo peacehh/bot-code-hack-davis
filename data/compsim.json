@@ -1,0 +1,23 @@
+[
+  {
+    "name": "89",
+    "eventID": "777",
+    "Scrambles": [
+      "D L B' L' U' L' F U R' F2 L2 D2 B' D2 R2 L2 B U2 D2 B'",
+      "R L2 U' F2 L2 F2 R2 F2 D' F2 D' R2 U' F R' U' B2 D2 F U'",
+      "L F2 R' F' L2 U F2 L U2 F2 D L2 F2 R2 F2 D' L2 B2 U'",
+      "R' L2 F' D2 F2 U2 R2 F' D2 F L2 D B L D2 B2 R' D U B'",
+      "B2 R' B2 R' D2 L R D2 F2 D2 R F' L2 D' R' D2 F2 L F' D'"
+    ],
+    "times": {
+      "777017644599476245": [
+        700,
+        7899
+      ],
+      "1230656470568140871": [
+        800,
+        123
+      ]
+    }
+  }
+]
