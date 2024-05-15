@@ -46,9 +46,9 @@ module.exports = {
         let selectedUsers;
         try {
             //wait for one minute
-            const menuMessage = await menuInteraction.awaitMessageComponent({ filter: collectorFilter, time: 10_000 });
+            const menuMessage = await menuInteraction.awaitMessageComponent({ filter: collectorFilter, time: 60_000 });
             selectedUsers = menuMessage.values;
-            menuReply = selectedUsers.map(userId => `<@${userId}>`).join(' ');
+            const menuReply = selectedUsers.map(userId => `<@${userId}>`).join(' ');
             await menuMessage.update({content:`You selected: ${menuReply}`, components: [] });
         } catch (error) {
             //after one minute
@@ -56,16 +56,8 @@ module.exports = {
             await interaction.editReply({ content: 'Selection not received, try again', components: [] });
             return; 
         }
-
-        //create a map containing the discord id's and solve time for each competitor. undefined = solve not entered
-        const solveTimes = new Map(selectedUsers.map(userId => [userId, []]));
-        const eventID = interaction.options.getString('event');
-		const eventName = eventData[eventID];
-        const compSimName = interaction.options.getString('compsimname');
-        let currentSolver = nextCompetitor(solveTimes);
         const numberOfSolves = 5;
         const members = interaction.guild.members;
-        //comps sim info
         const scrambles = [
             //TODO: need to inplement a way to generate scrambles cant get cubing.js to work
             "D L B' L' U' L' F U R' F2 L2 D2 B' D2 R2 L2 B U2 D2 B'",
@@ -74,21 +66,29 @@ module.exports = {
             "R' L2 F' D2 F2 U2 R2 F' D2 F L2 D B L D2 B2 R' D U B'",
             "B2 R' B2 R' D2 L R D2 F2 D2 R F' L2 D' R' D2 F2 L F' D'",
         ]
+        //create newCompSim object
+        const timesObject = {};
+        selectedUsers.forEach(id => timesObject[id] = []);
+        let compSimObject =  {
+            name: interaction.options.getString('compsimname'),
+            eventID: interaction.options.getString('event'),
+            scrambles: scrambles,
+            times: timesObject
+        };
+        //assign curent solver
+        let currentSolver = nextCompetitor(compSimObject);
         //read compsim file
         let compsimsJson = fs.readFileSync('./data/compsim.json', 'utf8');
 		let compSims = JSON.parse(compsimsJson);
-        let newCompSim = createCompSimObject(compSimName, solveTimes, eventID, scrambles)
         //check is comp sim name already exists
-        for (var i = 0; i < compSims.length; i++) {
-            if (Object.values(compSims[i]).includes(compSimName)) {
-                interaction.editReply(
-                    { content: `This comp sim (${compSimName}) already exists. Please use another name`, components: [] }
-                );
-                return;
-            }
+        if (compSims.find(comp=>comp.name===compSimObject.name)) {
+            interaction.editReply(
+                { content: `This comp sim (${compSimObject.name}) already exists. Please use another name`, components: [] }
+            );
+            return;
         }
-        //add comp sim to json
-        compSims.push(newCompSim)
+        //add newCompSim to json
+        compSims.push(compSimObject)
         const updatedJSON = JSON.stringify(compSims, null, 2);
 		fs.writeFileSync('./data/compsim.json', updatedJSON, 'utf8');
 
@@ -103,32 +103,30 @@ module.exports = {
         const row = new ActionRowBuilder().addComponents(enterTimeButton, skipButton);
 
         //generate the embeds
-        let messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
+        let messageEmbeds = generateEmbed(compSimObject, members, currentSolver)
         //send the times embed and buttons
         let embedMessage = await interaction.channel.send({embeds: messageEmbeds, components: [row]});
 
         //runs when skip button pressed
-        const skipCollector = embedMessage.createMessageComponentCollector({ filter: i => i.customId === 'skip'});
+        const skipCollector = embedMessage.createMessageComponentCollector({ filter: i => 
+            i.customId === 'skip' && selectedUsers.includes(i.user.id) 
+        });
         skipCollector.on('collect', async skipInteraction => {  
             //finds another competitor
-            const timesWithoutCurrectSolver = new Map(solveTimes);
-            timesWithoutCurrectSolver.delete(currentSolver);
-            const newCompetitor = nextCompetitor(timesWithoutCurrectSolver)
-            if (nextSolveIndex(solveTimes.get(newCompetitor)) == numberOfSolves) {
-                //button does nothing if no other competitors are available
-                await skipInteraction.update({components: [row]});
-                return;
+            const { [currentSolver]: times, ...otherCompetitors } = compSimObject.times;
+            const newCompetitor = nextCompetitor({times:otherCompetitors})
+            if (compSimObject.times[newCompetitor].length !== numberOfSolves) { 
+                currentSolver = newCompetitor;
             }
-            //update solver
-            currentSolver =  nextCompetitor(timesWithoutCurrectSolver)
-            //update membed
-            messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
+            messageEmbeds = generateEmbed(compSimObject, members, currentSolver);
             await embedMessage.edit({embeds: messageEmbeds});
             await skipInteraction.update({components: [row]});
         });
 
         //runs when enter button pressed
-        const enterTimeCollector = embedMessage.createMessageComponentCollector({ filter: i => i.customId === 'entertime'});
+        const enterTimeCollector = embedMessage.createMessageComponentCollector({ filter: i => 
+            i.customId === 'entertime' && selectedUsers.includes(i.user.id) 
+        });
         enterTimeCollector.on('collect', async timeInteraction => {
             //disable button so multiple users can't use modal at the same time
             enterTimeButton.setDisabled(true);
@@ -176,30 +174,34 @@ module.exports = {
                 return;
             }
 
-            //updates the solveTimes
-            const times = solveTimes.get(currentSolver);
-            times[nextSolveIndex(times)] = timeToCentiseconds(time);
-
-            //update json file
+            //read data
             let compsimsJson = fs.readFileSync('./data/compsim.json', 'utf8');
             let compSims = JSON.parse(compsimsJson);
-            newCompSim = createCompSimObject(compSimName, solveTimes, eventID, scrambles)
-            compSims = compSims.map(comp => comp.name===compSimName?newCompSim:comp)            
+            //update compSimObject to value in the json
+            let compSimFile = compSims.find(comp=>comp.name===compSimObject.name);
+            console.log(JSON.stringify(compSimFile, null, 4));
+            compSimObject = compSimFile;
+            //update time in compSimObject
+            const solveIndex = compSimObject.times[currentSolver].length
+            compSimObject.times[currentSolver][solveIndex] = timeToCentiseconds(time);
+            console.log(JSON.stringify(compSimFile, null, 4));
+
+            //update json file
+            compSims = compSims.map(comp => comp.name===compSimObject.name?compSimObject:comp)            
             const updatedJSON = JSON.stringify(compSims, null, 2);
             fs.writeFileSync('./data/compsim.json', updatedJSON, 'utf8');
 
             //check if comp sim is over
-            const over = nextSolveIndex(solveTimes.get(nextCompetitor(solveTimes))) === numberOfSolves
-            if (over)  {
-                messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
+            if (compSimObject.times[nextCompetitor(compSimObject)].length === numberOfSolves)  {
+                messageEmbeds = generateEmbed(compSimObject, members, currentSolver)
                 embedMessage.edit({embeds: messageEmbeds, components: []});
                 return;
             };
 
             //update current solver
-            currentSolver = nextCompetitor(solveTimes)
-
-            messageEmbeds = generateEmbed(solveTimes, members, currentSolver, compSimName, scrambles)
+            currentSolver = nextCompetitor(compSimObject);
+            //update embed
+            messageEmbeds = generateEmbed(compSimObject, members, currentSolver);
             await embedMessage.edit({embeds: messageEmbeds});
 
             //reenable button
@@ -209,73 +211,48 @@ module.exports = {
 	},
 };
 
-function createCompSimObject(compName, times, eventID, scrambles) {
-    const timesObject = {};
-    times.forEach((value, key) => {
-        timesObject[key] = value;
-    });
-
-    const compSimObject = {
-        name: compName,
-        eventID: eventID,
-        Scrambles: scrambles,
-        times: timesObject
-    }
-
-    return compSimObject
-}
-function nextSolveIndex(times) {
-    let solveNumber = times.findIndex(time => time === undefined || time == null);
-    if (solveNumber === -1 ) 
-        solveNumber = times.length
-
-    return solveNumber
-}
-
-function nextCompetitor(timeData) {
+function nextCompetitor(compSimObject) {
     let shortestLength = Infinity;
     let shortestUserID = null;
-
-    timeData.forEach((times, userId) => {
-        if (nextSolveIndex(times) < shortestLength) {
-            shortestLength = (nextSolveIndex(times)) ;
-            shortestUserID = userId;
+    Object.keys(compSimObject.times).forEach(id => {
+        if (compSimObject.times[id].length < shortestLength) {
+            shortestLength = compSimObject.times[id].length;
+            shortestUserID = id;
         }
     });
     return shortestUserID;
 }
 
-function generateEmbed(timeData, members, competitor, compName, scrambles) {
+function generateEmbed(compSimObject, members, currentSolver) {
     const infoEmbed = new EmbedBuilder()
         .setTitle("NEXT COMPETITOR")
         .setColor(0x0099FF)
         .addFields(
-            { name: `Name:`, value:` <@${competitor}>`},
-            { name: `Scramble:`, value:`${scrambles[nextSolveIndex(timeData.get(competitor))]}`},
-    );
+            { name: `Name:`, value:` <@${currentSolver}>`},
+            { name: `Scramble:`, value:`${compSimObject.scrambles[compSimObject.times[currentSolver].length]}`},
+        );
 
     function sum(numbers) {
         return numbers.reduce((acc, curr) => acc + curr, 0);
     }
     const timesEmbed = new EmbedBuilder()
-        .setTitle("RESULTS: " + compName.toUpperCase())
+        .setTitle("RESULTS: " + compSimObject.name)
         .setColor(0x0099FF)
 
     //add the times for each competitor to the embed
-    timeData.forEach((times, userId) => {
+    Object.entries(compSimObject.times).forEach(([userId,times]) => {
         let stat;
-        const arr = timeData.get(userId)
         if (times.length === 4) {
-            const bpa = centisecondsToTime((sum(arr)-Math.max(...arr))/3);
-            const wpa = centisecondsToTime((sum(arr)-Math.min(...arr))/3);
+            const bpa = centisecondsToTime((sum(times)-Math.max(...times))/3);
+            const wpa = centisecondsToTime((sum(times)-Math.min(...times))/3);
             stat = ` (bpa ${bpa} wpa ${wpa})`;
         } else if (times.length === 5) {
-            const avg = centisecondsToTime((sum(arr)-Math.max(...arr)-Math.min(...arr))/3);
+            const avg = centisecondsToTime((sum(times)-Math.max(...times)-Math.min(...times))/3);
             stat = ` (avg ${avg})`;
         } else if (times.length === 0) {
             stat = '';
         } else {
-            const mean = centisecondsToTime(sum(arr)/times.length);
+            const mean = centisecondsToTime(sum(times)/times.length);
             stat = ` (mean ${mean})`;
         }
 
