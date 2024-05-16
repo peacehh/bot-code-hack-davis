@@ -2,7 +2,7 @@
 const { SlashCommandBuilder , UserSelectMenuBuilder, ActionRowBuilder,ButtonBuilder, ButtonStyle, 
     MessageActionRow,  MessageButton, MessageSelectMenu, EmbedBuilder, time, TimestampStyles,
     Events, ModalBuilder, TextInputBuilder, TextInputStyle} = require('discord.js');
-const {timeToCentiseconds , centisecondsToTime, isValidTime} = require('../../utils/time-functions')
+const timeUtils = require('../../utils/timeUtils');
 
 const fs = require('fs')
 const eventDataJSON = fs.readFileSync('./data/eventdata.json', 'utf8');
@@ -56,7 +56,6 @@ module.exports = {
             await interaction.editReply({ content: 'Selection not received, try again', components: [] });
             return; 
         }
-        const numberOfSolves = 5;
         const members = interaction.guild.members;
         const scrambles = [
             //TODO: need to inplement a way to generate scrambles cant get cubing.js to work
@@ -115,7 +114,7 @@ module.exports = {
             //finds another competitor
             const { [currentSolver]: times, ...otherCompetitors } = compSimObject.times;
             const newCompetitor = nextCompetitor({times:otherCompetitors})
-            if (compSimObject.times[newCompetitor].length !== numberOfSolves) { 
+            if (compSimObject.times[newCompetitor].length !== 5) { 
                 currentSolver = newCompetitor;
             }
             messageEmbeds = generateEmbed(compSimObject, members, currentSolver);
@@ -153,7 +152,7 @@ module.exports = {
                 const modalResponse = await timeInteraction.awaitModalSubmit({ filter, time: 20_000 });
 
                 time = modalResponse.fields.getTextInputValue('timeinput');
-                if (!isValidTime(time)) {
+                if (!timeUtils.isValidTime(time)) {
                     //send message
                     await modalResponse.reply(`This format (${time}) is not supported.`);
                     setTimeout(() => { modalResponse.deleteReply() }, 5_000);
@@ -179,12 +178,12 @@ module.exports = {
             let compSims = JSON.parse(compsimsJson);
             //update compSimObject to value in the json
             let compSimFile = compSims.find(comp=>comp.name===compSimObject.name);
-            console.log(JSON.stringify(compSimFile, null, 4));
             compSimObject = compSimFile;
             //update time in compSimObject
+            console.log(time);
+            console.log(timeUtils.timeToCentiseconds(time))
             const solveIndex = compSimObject.times[currentSolver].length
-            compSimObject.times[currentSolver][solveIndex] = timeToCentiseconds(time);
-            console.log(JSON.stringify(compSimFile, null, 4));
+            compSimObject.times[currentSolver][solveIndex] = timeUtils.timeToCentiseconds(time);
 
             //update json file
             compSims = compSims.map(comp => comp.name===compSimObject.name?compSimObject:comp)            
@@ -192,7 +191,7 @@ module.exports = {
             fs.writeFileSync('./data/compsim.json', updatedJSON, 'utf8');
 
             //check if comp sim is over
-            if (compSimObject.times[nextCompetitor(compSimObject)].length === numberOfSolves)  {
+            if (compSimObject.times[nextCompetitor(compSimObject)].length === 5)  {
                 messageEmbeds = generateEmbed(compSimObject, members, currentSolver)
                 embedMessage.edit({embeds: messageEmbeds, components: []});
                 return;
@@ -243,24 +242,26 @@ function generateEmbed(compSimObject, members, currentSolver) {
     Object.entries(compSimObject.times).forEach(([userId,times]) => {
         let stat;
         if (times.length === 4) {
-            const bpa = centisecondsToTime((sum(times)-Math.max(...times))/3);
-            const wpa = centisecondsToTime((sum(times)-Math.min(...times))/3);
+            const bpa = timeUtils.centisecondsToTime(timeUtils.bpa(times));
+            const wpa = timeUtils.centisecondsToTime(timeUtils.wpa(times));
             stat = ` (bpa ${bpa} wpa ${wpa})`;
         } else if (times.length === 5) {
-            const avg = centisecondsToTime((sum(times)-Math.max(...times)-Math.min(...times))/3);
+            const avg = timeUtils.centisecondsToTime(timeUtils.wcaAverage(times));
             stat = ` (avg ${avg})`;
         } else if (times.length === 0) {
             stat = '';
         } else {
-            const mean = centisecondsToTime(sum(times)/times.length);
+            const mean = timeUtils.centisecondsToTime(timeUtils.mean(times));
             stat = ` (mean ${mean})`;
         }
 
         timesEmbed.addFields(
             {name:`${members.cache.get(userId).displayName} ${stat}`, 
-            value: times.map(time => centisecondsToTime(time)).join('  ') + '\u200B'}
+            value: times.map(time => timeUtils.centisecondsToTime(time)).join('  ') + '\u200B'}
         )
     });
-    
-    return [infoEmbed, timesEmbed]
+    if (compSimObject.times[nextCompetitor(compSimObject)].length === 5) {
+        return [timesEmbed]
+    }
+    return [timesEmbed, infoEmbed]
 }

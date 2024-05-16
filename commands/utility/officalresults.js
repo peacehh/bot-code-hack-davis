@@ -1,7 +1,7 @@
 const { SlashCommandBuilder , EmbedBuilder } = require('discord.js');
 const fs = require('fs')
 
-const {centisecondsToTime} = require('../../utils/time-functions')
+const {centisecondsToTime} = require('../../utils/timeUtils')
 const eventDataJSON = fs.readFileSync('./data/eventdata.json', 'utf8');
 const eventData = JSON.parse(eventDataJSON);
 
